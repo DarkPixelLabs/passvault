@@ -45,12 +45,9 @@ public class VaultController {
     public ResponseEntity<?> list(HttpServletRequest request) {
         Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(request));
         if (session.isEmpty()) return unauthorized();
-
         long userId = session.get().userId();
         List<EntryMetadata> entries = entryRepository.findAllByUserIdOrderBySiteNameAsc(userId)
-                .stream()
-                .map(entry -> new EntryMetadata(entry.getId(), entry.getSiteName(), entry.getUsername(), entry.getUrl()))
-                .toList();
+                .stream().map(entry -> new EntryMetadata(entry.getId(), entry.getSiteName(), entry.getUsername(), entry.getUrl())).toList();
         return ResponseEntity.ok(entries);
     }
 
@@ -58,19 +55,14 @@ public class VaultController {
     public ResponseEntity<?> reveal(@PathVariable Long id, HttpServletRequest request) {
         Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(request));
         if (session.isEmpty()) return unauthorized();
-
         byte[] key = session.get().derivedKey();
         try {
             VaultEntry entry = entryRepository.findById(id).orElse(null);
-            if (entry == null || !entry.getUser().getId().equals(session.get().userId())) {
-                return ResponseEntity.notFound().build();
-            }
+            if (entry == null || !entry.getUser().getId().equals(session.get().userId())) return ResponseEntity.notFound().build();
             byte[] plaintext = cryptoService.decrypt(entry.getEncryptedPassword(), key, entry.getPasswordNonce());
             try {
                 return ResponseEntity.ok(Map.of("password", new String(plaintext, StandardCharsets.UTF_8)));
-            } finally {
-                Arrays.fill(plaintext, (byte) 0);
-            }
+            } finally { Arrays.fill(plaintext, (byte) 0); }
         } finally {
             // wipe local key copy — SessionManager only owns wiping its internal copy
             Arrays.fill(key, (byte) 0);
@@ -81,10 +73,8 @@ public class VaultController {
     public ResponseEntity<?> create(@RequestBody VaultEntryRequest request, HttpServletRequest httpRequest) {
         Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(httpRequest));
         if (session.isEmpty()) return unauthorized();
-        if (request == null || request.siteName() == null || request.siteName().isBlank()
-                || request.password() == null) {
+        if (request == null || request.siteName() == null || request.siteName().isBlank() || request.password() == null)
             return ResponseEntity.badRequest().body(Map.of("error", "Site name and password are required."));
-        }
 
         byte[] key = session.get().derivedKey();
         byte[] passwordBytes = request.password().getBytes(StandardCharsets.UTF_8);
@@ -99,10 +89,7 @@ public class VaultController {
             entry.setUrl(request.url());
             entry.setEncryptedPassword(password.ciphertext());
             entry.setPasswordNonce(password.nonce());
-            if (notes != null) {
-                entry.setEncryptedNotes(notes.ciphertext());
-                entry.setNotesNonce(notes.nonce());
-            }
+            if (notes != null) { entry.setEncryptedNotes(notes.ciphertext()); entry.setNotesNonce(notes.nonce()); }
             VaultEntry saved = entryRepository.save(entry);
             return ResponseEntity.ok(new EntryMetadata(saved.getId(), saved.getSiteName(), saved.getUsername(), saved.getUrl()));
         } finally {
@@ -114,32 +101,23 @@ public class VaultController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody VaultEntryRequest request,
-                                    HttpServletRequest httpRequest) {
+    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody VaultEntryRequest request, HttpServletRequest httpRequest) {
         Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(httpRequest));
         if (session.isEmpty()) return unauthorized();
-        if (request == null || request.siteName() == null || request.siteName().isBlank()
-                || request.password() == null) {
+        if (request == null || request.siteName() == null || request.siteName().isBlank() || request.password() == null)
             return ResponseEntity.badRequest().body(Map.of("error", "Site name and password are required."));
-        }
 
         byte[] key = session.get().derivedKey();
         byte[] passwordBytes = request.password().getBytes(StandardCharsets.UTF_8);
         byte[] notesBytes = request.notes() == null ? null : request.notes().getBytes(StandardCharsets.UTF_8);
         try {
             VaultEntry entry = entryRepository.findById(id).orElse(null);
-            if (entry == null || !entry.getUser().getId().equals(session.get().userId())) {
-                return ResponseEntity.notFound().build();
-            }
+            if (entry == null || !entry.getUser().getId().equals(session.get().userId())) return ResponseEntity.notFound().build();
             CryptoService.EncryptedData password = cryptoService.encrypt(passwordBytes, key);
             CryptoService.EncryptedData notes = notesBytes == null ? null : cryptoService.encrypt(notesBytes, key);
-            entry.setSiteName(request.siteName());
-            entry.setUsername(request.username());
-            entry.setUrl(request.url());
-            entry.setEncryptedPassword(password.ciphertext());
-            entry.setPasswordNonce(password.nonce());
-            entry.setEncryptedNotes(notes == null ? null : notes.ciphertext());
-            entry.setNotesNonce(notes == null ? null : notes.nonce());
+            entry.setSiteName(request.siteName()); entry.setUsername(request.username()); entry.setUrl(request.url());
+            entry.setEncryptedPassword(password.ciphertext()); entry.setPasswordNonce(password.nonce());
+            entry.setEncryptedNotes(notes == null ? null : notes.ciphertext()); entry.setNotesNonce(notes == null ? null : notes.nonce());
             VaultEntry saved = entryRepository.save(entry);
             return ResponseEntity.ok(new EntryMetadata(saved.getId(), saved.getSiteName(), saved.getUsername(), saved.getUrl()));
         } finally {
@@ -150,6 +128,16 @@ public class VaultController {
         }
     }
 
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> delete(@PathVariable Long id, HttpServletRequest request) {
+        Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(request));
+        if (session.isEmpty()) return unauthorized();
+        VaultEntry entry = entryRepository.findById(id).orElse(null);
+        if (entry == null || !entry.getUser().getId().equals(session.get().userId())) return ResponseEntity.notFound().build();
+        entryRepository.delete(entry);
+        return ResponseEntity.noContent().build();
+    }
+
     private static ResponseEntity<Map<String, String>> unauthorized() {
         return ResponseEntity.status(401).body(Map.of("error", "Authentication required."));
     }
@@ -157,9 +145,7 @@ public class VaultController {
     private static String extractSessionToken(HttpServletRequest request) {
         Cookie[] cookies = request.getCookies();
         if (cookies == null) return null;
-        for (Cookie cookie : cookies) {
-            if (SESSION_COOKIE.equals(cookie.getName())) return cookie.getValue();
-        }
+        for (Cookie cookie : cookies) if (SESSION_COOKIE.equals(cookie.getName())) return cookie.getValue();
         return null;
     }
 
