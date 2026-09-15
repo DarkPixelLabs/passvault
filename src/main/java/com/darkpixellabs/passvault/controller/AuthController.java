@@ -1,0 +1,72 @@
+package com.darkpixellabs.passvault.controller;
+
+import com.darkpixellabs.passvault.crypto.CryptoService;
+import com.darkpixellabs.passvault.model.VaultUser;
+import com.darkpixellabs.passvault.model.VaultUserRepository;
+import com.darkpixellabs.passvault.security.AuthRateLimiter;
+import com.darkpixellabs.passvault.security.SessionManager;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Duration;
+import java.util.Arrays;
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api")
+public class AuthController {
+    private static final int MIN_PASSWORD_LENGTH = 12;
+    private static final String SESSION_COOKIE = "PASSVAULT_SESSION";
+
+    private final VaultUserRepository userRepository;
+    private final CryptoService cryptoService;
+    private final SessionManager sessionManager;
+    private final AuthRateLimiter rateLimiter;
+
+    public AuthController(VaultUserRepository userRepository, CryptoService cryptoService,
+                          SessionManager sessionManager, AuthRateLimiter rateLimiter) {
+        this.userRepository = userRepository;
+        this.cryptoService = cryptoService;
+        this.sessionManager = sessionManager;
+        this.rateLimiter = rateLimiter;
+    }
+
+    @PostMapping("/setup")
+    public ResponseEntity<?> setup(@RequestBody PasswordRequest request, HttpServletRequest httpRequest) {
+        String ip = clientIp(httpRequest);
+        if (!rateLimiter.allow(ip)) {
+            return ResponseEntity.status(429).body(Map.of("error", "Too many attempts. Try again later."));
+        }
+        if (userRepository.count() > 0) {
+            return ResponseEntity.status(409).body(Map.of("error", "Master password is already configured."));
+        }
+        if (request == null || request.masterPassword() == null || request.masterPassword().length() < MIN_PASSWORD_LENGTH) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Master password must be at least 12 characters long."));
+        }
+
+        char[] password = request.masterPassword().toCharArray();
+        try {
+            VaultUser user = new VaultUser();
+            user.setPasswordHash(cryptoService.hashMasterPassword(password));
+            byte[] salt = cryptoService.generateSalt();
+            user.setEncryptionSalt(salt);
+            userRepository.save(user);
+            return ResponseEntity.ok(Map.of("message", "Setup completed. Please log in."));
+        } finally {
+            Arrays.fill(password, '\0');
+        }
+    }
+
+    private static String clientIp(HttpServletRequest request) {
+        return request.getRemoteAddr();
+    }
+
+    public record PasswordRequest(String masterPassword) {}
+}
