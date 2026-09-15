@@ -6,6 +6,7 @@ import com.darkpixellabs.passvault.model.VaultUserRepository;
 import com.darkpixellabs.passvault.security.AuthRateLimiter;
 import com.darkpixellabs.passvault.security.SessionManager;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -112,6 +113,30 @@ public class AuthController {
             }
             Arrays.fill(keyPassword, '\0');
         }
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<?> logout(HttpServletRequest request, HttpServletResponse response) {
+        String token = extractSessionToken(request);
+        sessionManager.invalidate(token);
+        ResponseCookie cookie = ResponseCookie.from(SESSION_COOKIE, "")
+                .httpOnly(true)
+                .secure(false)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(Duration.ZERO)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                .body(Map.of("message", "Logged out."));
+    }
+
+    private static String extractSessionToken(HttpServletRequest request) {
+        if (request.getCookies() == null) return null;
+        for (var cookie : request.getCookies()) {
+            if (SESSION_COOKIE.equals(cookie.getName())) return cookie.getValue();
+        }
+        return null;
     }
 
     private static String clientIp(HttpServletRequest request) {
