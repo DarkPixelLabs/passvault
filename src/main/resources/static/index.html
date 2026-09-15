@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PassVault</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="auth-view" class="panel auth-panel">
+      <div class="brand"><span class="lock" aria-hidden="true">▣</span><span>PASSVAULT</span></div>
+      <p class="eyebrow">DARKPIXELLABS / SELF-HOSTED</p>
+      <div id="setup-screen" class="auth-screen">
+        <h1>Seal your vault.</h1><p>Create the one master password that unlocks everything.</p>
+        <form id="setup-form"><input id="setup-password" type="password" minlength="12" autocomplete="new-password" placeholder="Master password (12+ chars)" required><button>INITIALIZE VAULT</button></form>
+      </div>
+      <div id="login-screen" class="auth-screen hidden">
+        <h1>Unlock vault.</h1><p id="login-message">Enter your master password.</p>
+        <form id="login-form"><input id="login-password" type="password" autocomplete="current-password" placeholder="Master password" required><button>UNLOCK</button></form>
+      </div>
+      <p id="auth-error" class="error" role="alert"></p>
+    </section>
+
+    <section id="vault-view" class="hidden">
+      <header class="vault-header"><div><p class="eyebrow">DARKPIXELLABS / PRIVATE STORAGE</p><h1>Vault</h1></div><button id="logout-button" class="ghost">LOCK</button></header>
+      <div class="toolbar"><span id="entry-count">0 entries</span><button id="add-button">+ ADD ENTRY</button></div>
+      <div id="vault-list" class="entry-list"></div>
+    </section>
+  </main>
+
+  <dialog id="entry-dialog"><form id="entry-form" method="dialog"><div class="dialog-head"><h2 id="dialog-title">New entry</h2><button type="button" id="cancel-button" class="ghost">CLOSE</button></div><input id="entry-site" placeholder="Site" required><input id="entry-username" placeholder="Username"><input id="entry-url" type="url" placeholder="https://example.com"><input id="entry-password" type="password" placeholder="Password" required><textarea id="entry-notes" placeholder="Encrypted notes"></textarea><input id="entry-id" type="hidden"><button>SAVE ENTRY</button></form></dialog>
+  <script src="/app.js" defer></script>
+</body>
+</html>
