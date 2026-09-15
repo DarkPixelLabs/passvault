@@ -27,7 +27,7 @@ PassVault is a self-hosted, single-user encrypted password manager built as a le
 Requirements: Java 21 and Maven 3.9+ (or the included Maven wrapper).
 
 ```bash
-./mvnw spring-boot:run
+sh ./mvnw spring-boot:run
 ```
 
 Windows:
