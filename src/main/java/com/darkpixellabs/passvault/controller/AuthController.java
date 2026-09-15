@@ -6,7 +6,6 @@ import com.darkpixellabs.passvault.model.VaultUserRepository;
 import com.darkpixellabs.passvault.security.AuthRateLimiter;
 import com.darkpixellabs.passvault.security.SessionManager;
 import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +23,7 @@ import java.util.Map;
 public class AuthController {
     private static final int MIN_PASSWORD_LENGTH = 12;
     private static final String SESSION_COOKIE = "PASSVAULT_SESSION";
+    private static final Duration SESSION_COOKIE_MAX_AGE = Duration.ofMinutes(15);
 
     private final VaultUserRepository userRepository;
     private final CryptoService cryptoService;
@@ -61,6 +61,56 @@ public class AuthController {
             return ResponseEntity.ok(Map.of("message", "Setup completed. Please log in."));
         } finally {
             Arrays.fill(password, '\0');
+        }
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody PasswordRequest request, HttpServletRequest httpRequest) {
+        String ip = clientIp(httpRequest);
+        if (!rateLimiter.allow(ip)) {
+            return ResponseEntity.status(429).body(Map.of("error", "Too many attempts. Try again later."));
+        }
+        if (request == null || request.masterPassword() == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid master password."));
+        }
+
+        VaultUser user = userRepository.findAll().stream().findFirst().orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid master password."));
+        }
+
+        char[] verifyPassword = request.masterPassword().toCharArray();
+        boolean valid;
+        try {
+            valid = cryptoService.verifyMasterPassword(verifyPassword, user.getPasswordHash());
+        } catch (RuntimeException e) {
+            valid = false;
+        }
+        if (!valid) {
+            return ResponseEntity.status(401).body(Map.of("error", "Invalid master password."));
+        }
+
+        char[] keyPassword = request.masterPassword().toCharArray();
+        byte[] key = null;
+        try {
+            key = cryptoService.deriveKey(keyPassword, user.getEncryptionSalt());
+            String token = sessionManager.createSession(key, user.getId());
+            ResponseCookie cookie = ResponseCookie.from(SESSION_COOKIE, token)
+                    .httpOnly(true)
+                    .secure(false)
+                    .sameSite("Strict")
+                    .path("/")
+                    .maxAge(SESSION_COOKIE_MAX_AGE)
+                    .build();
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.SET_COOKIE, cookie.toString())
+                    .body(Map.of("message", "Login successful."));
+        } finally {
+            if (key != null) {
+                // wipe local key copy — SessionManager only owns wiping its internal copy
+                Arrays.fill(key, (byte) 0);
+            }
+            Arrays.fill(keyPassword, '\0');
         }
     }
 
