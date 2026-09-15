@@ -11,7 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.SecureRandom;
-import java.util.Base64;
+import java.util.Arrays;
 
 @Service
 public class CryptoService {
@@ -33,24 +33,29 @@ public class CryptoService {
     }
 
     public String hashMasterPassword(char[] password) {
-        byte[] salt = generateSalt();
-        String encoded = argon2.hash(ARGON2_ITERATIONS, ARGON2_MEMORY_KIB, ARGON2_PARALLELISM, password, StandardCharsets.UTF_8);
-        java.util.Arrays.fill(password, '\0');
-        return Base64.getEncoder().encodeToString(salt) + "." + encoded;
+        try {
+            return argon2.hash(ARGON2_ITERATIONS, ARGON2_MEMORY_KIB, ARGON2_PARALLELISM,
+                    password, StandardCharsets.UTF_8);
+        } finally {
+            Arrays.fill(password, '\0');
+        }
     }
 
     public boolean verifyMasterPassword(char[] password, String storedHash) {
         try {
-            return argon2.verify(storedHash.substring(storedHash.indexOf('.') + 1), password, StandardCharsets.UTF_8);
+            return argon2.verify(storedHash, password, StandardCharsets.UTF_8);
         } finally {
-            java.util.Arrays.fill(password, '\0');
+            Arrays.fill(password, '\0');
         }
     }
 
     public byte[] deriveKey(char[] password, byte[] salt) {
-        byte[] key = argon2.rawHash(ARGON2_ITERATIONS, ARGON2_MEMORY_KIB, ARGON2_PARALLELISM, password, salt, KEY_LENGTH, StandardCharsets.UTF_8);
-        java.util.Arrays.fill(password, '\0');
-        return key;
+        try {
+            return argon2.rawHash(ARGON2_ITERATIONS, ARGON2_MEMORY_KIB, ARGON2_PARALLELISM,
+                    password, salt, KEY_LENGTH, StandardCharsets.UTF_8);
+        } finally {
+            Arrays.fill(password, '\0');
+        }
     }
 
     public EncryptedData encrypt(byte[] plaintext, byte[] key) {
@@ -58,7 +63,8 @@ public class CryptoService {
             byte[] nonce = new byte[NONCE_LENGTH];
             secureRandom.nextBytes(nonce);
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(GCM_TAG_BITS, nonce));
+            cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, nonce));
             return new EncryptedData(nonce, cipher.doFinal(plaintext));
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("Encryption failed", e);
@@ -68,7 +74,8 @@ public class CryptoService {
     public byte[] decrypt(byte[] ciphertext, byte[] key, byte[] nonce) {
         try {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(GCM_TAG_BITS, nonce));
+            cipher.init(Cipher.DECRYPT_MODE, new SecretKeySpec(key, "AES"),
+                    new GCMParameterSpec(GCM_TAG_BITS, nonce));
             return cipher.doFinal(ciphertext);
         } catch (AEADBadTagException e) {
             throw new IllegalArgumentException("Ciphertext authentication failed", e);
