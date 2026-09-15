@@ -8,9 +8,11 @@ import com.darkpixellabs.passvault.security.SessionManager;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -101,6 +103,43 @@ public class VaultController {
                 entry.setEncryptedNotes(notes.ciphertext());
                 entry.setNotesNonce(notes.nonce());
             }
+            VaultEntry saved = entryRepository.save(entry);
+            return ResponseEntity.ok(new EntryMetadata(saved.getId(), saved.getSiteName(), saved.getUsername(), saved.getUrl()));
+        } finally {
+            Arrays.fill(passwordBytes, (byte) 0);
+            if (notesBytes != null) Arrays.fill(notesBytes, (byte) 0);
+            // wipe local key copy — SessionManager only owns wiping its internal copy
+            Arrays.fill(key, (byte) 0);
+        }
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<?> update(@PathVariable Long id, @RequestBody VaultEntryRequest request,
+                                    HttpServletRequest httpRequest) {
+        Optional<SessionManager.SessionData> session = sessionManager.getSession(extractSessionToken(httpRequest));
+        if (session.isEmpty()) return unauthorized();
+        if (request == null || request.siteName() == null || request.siteName().isBlank()
+                || request.password() == null) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Site name and password are required."));
+        }
+
+        byte[] key = session.get().derivedKey();
+        byte[] passwordBytes = request.password().getBytes(StandardCharsets.UTF_8);
+        byte[] notesBytes = request.notes() == null ? null : request.notes().getBytes(StandardCharsets.UTF_8);
+        try {
+            VaultEntry entry = entryRepository.findById(id).orElse(null);
+            if (entry == null || !entry.getUser().getId().equals(session.get().userId())) {
+                return ResponseEntity.notFound().build();
+            }
+            CryptoService.EncryptedData password = cryptoService.encrypt(passwordBytes, key);
+            CryptoService.EncryptedData notes = notesBytes == null ? null : cryptoService.encrypt(notesBytes, key);
+            entry.setSiteName(request.siteName());
+            entry.setUsername(request.username());
+            entry.setUrl(request.url());
+            entry.setEncryptedPassword(password.ciphertext());
+            entry.setPasswordNonce(password.nonce());
+            entry.setEncryptedNotes(notes == null ? null : notes.ciphertext());
+            entry.setNotesNonce(notes == null ? null : notes.nonce());
             VaultEntry saved = entryRepository.save(entry);
             return ResponseEntity.ok(new EntryMetadata(saved.getId(), saved.getSiteName(), saved.getUsername(), saved.getUrl()));
         } finally {
