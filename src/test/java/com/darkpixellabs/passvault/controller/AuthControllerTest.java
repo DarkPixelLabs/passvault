@@ -9,12 +9,13 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.mock.web.MockHttpServletResponse;
 
-import java.util.Optional;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class AuthControllerTest {
@@ -50,13 +51,14 @@ class AuthControllerTest {
 
     @Test
     void correctLoginSucceedsAndSetsStrictHttpOnlyCookie() {
-        VaultUser user = new VaultUser();
-        user.setPasswordHash("argon2-hash");
-        user.setEncryptionSalt(new byte[16]);
-        when(userRepository.findAll()).thenReturn(java.util.List.of(user));
+        VaultUser user = mock(VaultUser.class);
+        when(user.getPasswordHash()).thenReturn("argon2-hash");
+        when(user.getEncryptionSalt()).thenReturn(new byte[16]);
+        when(user.getId()).thenReturn(1L);
+        when(userRepository.findAll()).thenReturn(List.of(user));
         when(cryptoService.verifyMasterPassword(any(char[].class), eq("argon2-hash"))).thenReturn(true);
         when(cryptoService.deriveKey(any(char[].class), any(byte[].class))).thenReturn(new byte[32]);
-        when(sessionManager.createSession(any(byte[].class), anyLong())).thenReturn("session-token");
+        when(sessionManager.createSession(any(byte[].class), eq(1L))).thenReturn("session-token");
 
         ResponseEntity<?> response = controller.login(new AuthController.PasswordRequest("strong-password-12"), request());
 
@@ -70,22 +72,21 @@ class AuthControllerTest {
 
     @Test
     void wrongPasswordIsRejectedGenerically() {
-        VaultUser user = new VaultUser();
-        user.setPasswordHash("argon2-hash");
-        user.setEncryptionSalt(new byte[16]);
-        when(userRepository.findAll()).thenReturn(java.util.List.of(user));
+        VaultUser user = mock(VaultUser.class);
+        when(user.getPasswordHash()).thenReturn("argon2-hash");
+        when(userRepository.findAll()).thenReturn(List.of(user));
         when(cryptoService.verifyMasterPassword(any(char[].class), eq("argon2-hash"))).thenReturn(false);
 
         ResponseEntity<?> response = controller.login(new AuthController.PasswordRequest("wrong-password"), request());
 
         assertEquals(401, response.getStatusCode().value());
-        assertEquals("{error=Invalid master password.}", response.getBody().toString());
+        assertEquals("Invalid master password.", ((java.util.Map<?, ?>) response.getBody()).get("error"));
         verify(sessionManager, never()).createSession(any(), anyLong());
     }
 
     @Test
     void rateLimitKicksInAfterTenAttempts() {
-        when(userRepository.count()).thenReturn(1L);
+        when(userRepository.findAll()).thenReturn(List.of());
         for (int i = 0; i < 10; i++) {
             ResponseEntity<?> response = controller.login(new AuthController.PasswordRequest("wrong-password"), request());
             assertEquals(401, response.getStatusCode().value());
@@ -99,9 +100,8 @@ class AuthControllerTest {
     void logoutInvalidatesSessionAndClearsCookie() {
         MockHttpServletRequest request = request();
         request.setCookies(new Cookie("PASSVAULT_SESSION", "session-token"));
-        MockHttpServletResponse response = new MockHttpServletResponse();
 
-        ResponseEntity<?> result = controller.logout(request, response);
+        ResponseEntity<?> result = controller.logout(request, null);
 
         assertEquals(200, result.getStatusCode().value());
         verify(sessionManager).invalidate("session-token");
